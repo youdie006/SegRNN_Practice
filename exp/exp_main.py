@@ -20,20 +20,25 @@ import numpy as np
 warnings.filterwarnings('ignore')
 
 class Exp_Main(Exp_Basic):
+    """
+    메인 실험 클래스: 모델 학습, 검증, 테스트 수행
+    SegRNN을 포함한 다양한 시계열 예측 모델 지원
+    """
     def __init__(self, args):
         super(Exp_Main, self).__init__(args)
 
     def _build_model(self):
+        """모델 인스턴스 생성"""
         model_dict = {
             'Autoformer': Autoformer,
             'Transformer': Transformer,
             'Informer': Informer,
-            'DLinear': DLinear,
-            'NLinear': NLinear,
-            'Linear': Linear,
-            'PatchTST': PatchTST,
-            'VanillaRNN': VanillaRNN,
-            'SegRNN': SegRNN
+            'DLinear': DLinear,      # 선형 분해 기반 모델
+            'NLinear': NLinear,      # 정규화 선형 모델
+            'Linear': Linear,        # 단순 선형 모델
+            'PatchTST': PatchTST,    # 패치 기반 Transformer
+            'VanillaRNN': VanillaRNN,# 전통적 RNN (비교용)
+            'SegRNN': SegRNN         # Segment RNN (논문 제안 모델)
         }
         model = model_dict[self.args.model].Model(self.args).float()
 
@@ -59,25 +64,31 @@ class Exp_Main(Exp_Basic):
         return criterion
 
     def vali(self, vali_data, vali_loader, criterion):
+        """검증 단계: 모델 성능 평가 (gradient 계산 없음)"""
         total_loss = []
-        self.model.eval()
-        with torch.no_grad():
+        self.model.eval()  # 평가 모드 (dropout, batch norm 비활성화)
+        with torch.no_grad():  # gradient 계산 비활성화
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(vali_loader):
-                batch_x = batch_x.float().to(self.device)
-                batch_y = batch_y.float()
+                # 데이터 준비
+                batch_x = batch_x.float().to(self.device)  # 입력: (batch, seq_len, channels)
+                batch_y = batch_y.float()                  # 정답: (batch, label_len+pred_len, channels)
 
-                batch_x_mark = batch_x_mark.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)  # 시간 특징
                 batch_y_mark = batch_y_mark.float().to(self.device)
 
-                # decoder input
+                # Transformer 계열 모델용 decoder 입력 생성
+                # SegRNN, Linear 모델은 decoder 불필요
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
-                # encoder - decoder
-                if self.args.use_amp:
+                
+                # 모델 추론
+                if self.args.use_amp:  # Automatic Mixed Precision
                     with torch.cuda.amp.autocast():
                         if any(substr in self.args.model for substr in {'Linear', 'SegRNN', 'TST'}):
+                            # 단순 입력-출력 구조 모델
                             outputs = self.model(batch_x)
                         else:
+                            # Transformer 계열 (encoder-decoder 구조)
                             if self.args.output_attention:
                                 outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                             else:
@@ -90,9 +101,12 @@ class Exp_Main(Exp_Basic):
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
                         else:
                             outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                # 예측 결과 추출
+                # MS: 다변량 입력 -> 단변량 출력 (마지막 차원만)
+                # M/S: 전체 차원 사용
                 f_dim = -1 if self.args.features == 'MS' else 0
-                outputs = outputs[:, -self.args.pred_len:, f_dim:]
-                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                outputs = outputs[:, -self.args.pred_len:, f_dim:]  # 예측 부분만 추출
+                batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)  # 정답 부분만 추출
 
                 pred = outputs.detach().cpu()
                 true = batch_y.detach().cpu()
@@ -325,9 +339,9 @@ class Exp_Main(Exp_Basic):
         f.write('\n')
         f.close()
 
-        # np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe,rse, corr]))
-        # np.save(folder_path + 'pred.npy', preds)
-        # np.save(folder_path + 'true.npy', trues)
+        np.save(folder_path + 'metrics.npy', np.array([mae, mse, rmse, mape, mspe,rse, corr]))
+        np.save(folder_path + 'pred.npy', preds)
+        np.save(folder_path + 'true.npy', trues)
         # np.save(folder_path + 'x.npy', inputx)
         return
 
