@@ -68,7 +68,7 @@ Best Case 예측 결과 (전체 채널):
 ![Representative Cases](visualization_results/readme_representative_cases.png)
 
 ### 학습 과정
-모든 모델이 15-17 epochs에서 early stopping. 전체 실험 시간 약 3분 (RTX 3060 Ti):
+모든 모델이 15-17 epochs에서 early stopping. 전체 실험 시간 약 3분:
 
 ![Training Curves](visualization_results/training_curves.png)
 
